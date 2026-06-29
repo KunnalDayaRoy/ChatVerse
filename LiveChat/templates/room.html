@@ -1,0 +1,145 @@
+{% extends 'base.html' %} {% block content %}
+<div class="toggle-container">
+  <input type="checkbox" class="checkbox" id="checkbox" />
+  <label for="checkbox" class="checkbox-label">
+    <i class="fas fa-moon"></i>
+    <i class="fas fa-sun"></i>
+    <span class="ball"></span>
+  </label>
+</div>
+<script>
+  const checkbox = document.getElementById("checkbox");
+  checkbox.addEventListener("change", () => {
+    document.body.classList.toggle("dark");
+  });
+</script>
+<div class="message-box">
+  <h2>Verse Code: {{ code }}</h2>
+  <div class="messages" id="messages"></div>
+  <div class="inputs">
+    <input
+      type="text"
+      rows="3"
+      placeholder="Message"
+      name="message"
+      id="message"
+    />
+    <input
+      type="file"
+      name="image"
+      id="image"
+      accept="image/*"
+      style="padding: 1px"
+    />
+    <button
+      type="button"
+      name="send"
+      id="send-btn"
+      onClick="sendMessage()"
+      class="round-btn"
+    >
+      Send
+    </button>
+    <button
+      type="button"
+      name="export"
+      id="export-btn"
+      onClick="exportChat()"
+      class="round-btn"
+    >
+      Export Chat
+    </button>
+  </div>
+</div>
+<script type="text/javascript">
+  var socketio = io();
+  var chatMessages = [];
+
+  const messages = document.getElementById("messages");
+
+  const createMessage = (name, msg, image) => {
+    const date = new Date().toLocaleString();
+    const content = `
+    <div class="message">
+      <div class="message-content">
+        <div class="message-details">
+          <span class="name_here"><strong id="entry_name" style="font-family: cursive;letter-spacing: 1px;font-size: 19px;">${name}</strong>: ${msg}</span>
+          <span class="muted">${date}</span>
+        </div>
+        ${
+          image
+            ? `<div class="message-image"><img src="${image}" alt="Shared Image" style="max-width: 300px;"></div>`
+            : ""
+        }
+      </div>
+    </div>
+    `;
+    messages.innerHTML += content;
+    messages.innerHTML += `<div class="message-space"></div>`; // Add space between messages
+
+    chatMessages.push({
+      name: name,
+      message: msg,
+      image: image
+        ? `<img src="${image}" alt="Shared Image" style="max-width: 300px;">`
+        : "",
+      date: date,
+    });
+  };
+
+  socketio.on("message", (data) => {
+    createMessage(data.name, data.message, data.image);
+  });
+
+  const sendMessage = () => {
+    const message = document.getElementById("message");
+    const imageInput = document.getElementById("image");
+    const file = imageInput.files[0];
+
+    if (message.value === "" && !file) return;
+
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const imageData = e.target.result;
+        socketio.emit("message", { data: message.value, image: imageData });
+        message.value = "";
+        imageInput.value = null;
+      };
+      reader.readAsDataURL(file);
+    } else {
+      socketio.emit("message", { data: message.value });
+      message.value = "";
+    }
+  };
+
+  const exportChat = () => {
+    let chatContent = "";
+    chatMessages.forEach((msg) => {
+      const messageLine = `${msg.name}: ${msg.message}`;
+      const dateTimeLine = `${msg.date}`;
+      const imageLine = `${msg.name} sent an image`;
+
+      chatContent += `${messageLine} - ${dateTimeLine}\n`;
+      if (msg.image) {
+        chatContent += `${imageLine} - ${dateTimeLine}\n`;
+      }
+    });
+
+    const blob = new Blob([chatContent], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "chat_export.txt";
+    a.click();
+
+    URL.revokeObjectURL(url);
+  };
+</script>
+
+{% for msg in messages %}
+<script type="text/javascript">
+  createMessage("{{msg.name}}", "{{msg.message}}", "{{msg.image}}");
+</script>
+{% endfor %} {% endblock %}

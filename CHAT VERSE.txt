@@ -1,0 +1,680 @@
+chatroom.py--------------------------------------------------------------------
+
+
+from fileinput import filename
+from flask import Flask, Response, render_template, request, session, redirect, url_for
+from flask_socketio import join_room, leave_room, send, SocketIO
+import random
+from string import ascii_uppercase
+import json
+import os
+
+application = Flask(__name__)
+application.config["SECRET_KEY"] = "hjhjsdahhds"
+socketio = SocketIO(application)
+
+rooms = {}
+
+def generate_unique_code(length):
+    while True:
+        code = ""
+        for _ in range(length):
+            code += random.choice(ascii_uppercase)
+
+        if code not in rooms:
+            break
+
+    return code
+
+
+@application.route("/", methods=["POST", "GET"])
+def home():
+    session.clear()
+    if request.method == "POST":
+        name = request.form.get("name")
+        code = request.form.get("code")
+        join = request.form.get("join", False)
+        create = request.form.get("create", False)
+
+        if not name:
+            return render_template("home.html", error="Please enter a name.", code=code, name=name)
+
+        if join != False and not code:
+            return render_template("home.html", error="Please enter a room code.", code=code, name=name)
+
+        room = code
+        if create != False:
+            room = generate_unique_code(4)
+            rooms[room] = {"members": 0, "messages": []}
+        elif code not in rooms:
+            return render_template("home.html", error="Room does not exist.", code=code, name=name)
+
+        session["room"] = room
+        session["name"] = name
+        return redirect(url_for("room"))
+
+    return render_template("home.html")
+
+
+@application.route("/room")
+def room():
+    room = session.get("room")
+    if room is None or session.get("name") is None or room not in rooms:
+        return redirect(url_for("home"))
+
+    return render_template("room.html", code=room, messages=rooms[room]["messages"])
+
+
+@socketio.on("message")
+def message(data):
+    room = session.get("room")
+    if room not in rooms:
+        return
+
+    content = {
+        "name": session.get("name"),
+        "message": data["data"],
+        "image": data.get("image", None)
+    }
+    send(content, to=room)
+    rooms[room]["messages"].applicationend(content)
+    print(f"{session.get('name')} said: {data['data']}")
+
+
+@socketio.on("connect")
+def connect(auth):
+    room = session.get("room")
+    name = session.get("name")
+    if not room or not name:
+        return
+    if room not in rooms:
+        leave_room(room)
+        return
+
+    join_room(room)
+    send({"name": name, "message": "has entered the room"}, to=room)
+    rooms[room]["members"] += 1
+    print(f"{name} joined room {room}")
+
+
+@socketio.on("disconnect")
+def disconnect():
+    room = session.get("room")
+    name = session.get("name")
+    leave_room(room)
+
+    if room in rooms:
+        rooms[room]["members"] -= 1
+        if rooms[room]["members"] <= 0:
+            del rooms[room]
+
+    send({"name": name, "message": "has left the room"}, to=room)
+    print(f"{name} has left the room {room}")
+
+@application.route("/export", methods=["GET"])
+def export():
+    room = session.get("room")
+    if room is None or room not in rooms:
+        return redirect(url_for("home"))
+
+    messages = rooms.get(room, {}).get("messages", [])
+    text_content = "\n".join(f"{msg['name']}: {msg['message']}" for msg in messages)
+    filename = f"chat_export_{room}.txt"
+
+    @application.after_request
+    def add_header(response):
+        response.headers["Content-Disposition"] = f"attachment; filename={filename}"
+        return response
+
+    return Response(text_content, mimetype="text/plain")
+
+
+application.add_url_rule("/export", view_func=export)
+
+if __name__ == "__main__":
+    socketio.run(application, debug=True, host='0.0.0.0', port=80, allow_unsafe_werkzeug=True)
+
+home.html--------------------------------------------------------------------------------------
+
+{% extends 'base.html' %} {% block content %}
+<style>
+  .buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .join {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .join input[type="text"] {
+    margin-bottom: 10px;
+  }
+
+  .round-btn {
+    margin-bottom: 10px;
+  }
+
+  .form-field {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .form-field label {
+    margin-bottom: 5px;
+    text-align: right;
+    width: 100px;
+  }
+
+  .form-field input[type="text"] {
+    text-align: left;
+    width: 150px;
+  }
+</style>
+
+<div class="toggle-container">
+  <input type="checkbox" class="checkbox" id="checkbox" />
+  <label for="checkbox" class="checkbox-label">
+    <i class="fas fa-moon"></i>
+    <i class="fas fa-sun"></i>
+    <span class="ball"></span>
+  </label>
+</div>
+
+<form method="post" class="buttons">
+  <h3><span class="verse">ChatVerse</span></h3>
+  <div class="form-field">
+    <label>Enter Name:</label>
+    <input type="text" placeholder="Pick a name!" name="name" value="{{name}}" />
+  </div>
+  <div class="form-field">
+    <label>Room Code:</label>
+    <input type="text" placeholder="Unique Code" name="code" value="{{code}}" />
+  </div>
+  <div>
+    <button type="submit" name="join" class="round-btn">Join a Room</button>
+    <button type="submit" name="create" class="round-btn">Create a Room</button>
+  </div>
+  {% if error %}
+  <ul>
+    <li>{{error}}</li>
+  </ul>
+  {% endif %}
+</form>
+
+<footer class="footer">
+  <p style="font-family: 'Lilita One', cursive">&copy; ChatVerse 2023</p>
+</footer>
+
+<script>
+  const checkbox = document.getElementById("checkbox");
+  checkbox.addEventListener("change", () => {
+    document.body.classList.toggle("dark");
+  });
+</script>
+{% endblock %}
+
+room.html-----------------------------------------------------------------------------------
+
+{% extends 'base.html' %} {% block content %}
+<div class="toggle-container">
+  <input type="checkbox" class="checkbox" id="checkbox" />
+  <label for="checkbox" class="checkbox-label">
+    <i class="fas fa-moon"></i>
+    <i class="fas fa-sun"></i>
+    <span class="ball"></span>
+  </label>
+</div>
+<script>
+  const checkbox = document.getElementById("checkbox");
+  checkbox.addEventListener("change", () => {
+    document.body.classList.toggle("dark");
+  });
+</script>
+<div class="message-box">
+  <h2>Verse Code: {{ code }}</h2>
+  <div class="messages" id="messages"></div>
+  <div class="inputs">
+    <input
+      type="text"
+      rows="3"
+      placeholder="Message"
+      name="message"
+      id="message"
+    />
+    <input
+      type="file"
+      name="image"
+      id="image"
+      accept="image/*"
+      style="padding: 1px"
+    />
+    <button
+      type="button"
+      name="send"
+      id="send-btn"
+      onClick="sendMessage()"
+      class="round-btn"
+    >
+      Send
+    </button>
+    <button
+      type="button"
+      name="export"
+      id="export-btn"
+      onClick="exportChat()"
+      class="round-btn"
+    >
+      Export Chat
+    </button>
+  </div>
+</div>
+<script type="text/javascript">
+  var socketio = io();
+  var chatMessages = [];
+
+  const messages = document.getElementById("messages");
+
+  const createMessage = (name, msg, image) => {
+    const date = new Date().toLocaleString();
+    const content = `
+    <div class="message">
+      <div class="message-content">
+        <div class="message-details">
+          <span class="name_here"><strong id="entry_name" style="font-family: cursive;letter-spacing: 1px;font-size: 19px;">${name}</strong>: ${msg}</span>
+          <span class="muted">${date}</span>
+        </div>
+        ${
+          image
+            ? `<div class="message-image"><img src="${image}" alt="Shared Image" style="max-width: 300px;"></div>`
+            : ""
+        }
+      </div>
+    </div>
+    `;
+    messages.innerHTML += content;
+    messages.innerHTML += `<div class="message-space"></div>`; // Add space between messages
+
+    chatMessages.push({
+      name: name,
+      message: msg,
+      image: image
+        ? `<img src="${image}" alt="Shared Image" style="max-width: 300px;">`
+        : "",
+      date: date,
+    });
+  };
+
+  socketio.on("message", (data) => {
+    createMessage(data.name, data.message, data.image);
+  });
+
+  const sendMessage = () => {
+    const message = document.getElementById("message");
+    const imageInput = document.getElementById("image");
+    const file = imageInput.files[0];
+
+    if (message.value === "" && !file) return;
+
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const imageData = e.target.result;
+        socketio.emit("message", { data: message.value, image: imageData });
+        message.value = "";
+        imageInput.value = null;
+      };
+      reader.readAsDataURL(file);
+    } else {
+      socketio.emit("message", { data: message.value });
+      message.value = "";
+    }
+  };
+
+  const exportChat = () => {
+    let chatContent = "";
+    chatMessages.forEach((msg) => {
+      const messageLine = `${msg.name}: ${msg.message}`;
+      const dateTimeLine = `${msg.date}`;
+      const imageLine = `${msg.name} sent an image`;
+
+      chatContent += `${messageLine} - ${dateTimeLine}\n`;
+      if (msg.image) {
+        chatContent += `${imageLine} - ${dateTimeLine}\n`;
+      }
+    });
+
+    const blob = new Blob([chatContent], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "chat_export.txt";
+    a.click();
+
+    URL.revokeObjectURL(url);
+  };
+</script>
+
+{% for msg in messages %}
+<script type="text/javascript">
+  createMessage("{{msg.name}}", "{{msg.message}}", "{{msg.image}}");
+</script>
+{% endfor %} {% endblock %}
+
+base.html---------------------------------------------------------------------------------
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chat Verse</title>
+    <link
+      rel="icon"
+      type="image/png"
+      href="{{ url_for('static', filename='css/chatt.png') }}"
+      alt="Favicon"
+    />
+
+    <link
+      rel="stylesheet"
+      href="{{url_for('static', filename='css/style.css')}}"
+    />
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"
+      integrity="sha512-q/dWJ3kcmjBLU4Qc47E4A9kTB4m3wuTY7vkFJDTZKjTs8jhyGQnaUrxa0Ytd0ssMZhbNua9hE+E7Qv1j+DyZwA=="
+      crossorigin="anonymous"
+    ></script>
+  </head>
+  <body>
+    <div class="content">{% block content %} {% endblock %}</div>
+  </body>
+</html>
+
+
+style.css--------------------------------------------------------------------------------
+
+html{
+  scroll-behavior: smooth;
+}
+
+/* custom scroll bar */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  /* background: #50505094; */
+  background: #d73232;
+  box-shadow: inset 0 0 50px rgba(118, 118, 118, 0.377); 
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 0, 0, 0.484);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 0, 0, 0.712); 
+}
+/*  */
+.content {
+  display: flex;
+  align-items: center;
+  margin-top: 40px;
+  justify-content: center;
+}
+
+.enter {
+  font-family: Arial, sans-serif;
+  font-size: 24px;
+  font-weight: bold;
+  color: #1b1a1a;
+}
+body.dark .enter {
+  color: #999999;
+}
+.name_here{
+  font-size: 18px;
+  color: rgba(0, 0, 0, 0.934);
+  letter-spacing: 0.3px;
+}
+body.dark .name_here{
+  color: cornsilk;
+  letter-spacing: 0.3px;
+}
+.verse {
+  font-family: monospace;
+  font-size: 40px;
+  font-weight: bold;
+  color: #000;
+  cursor: none;
+}
+body.dark .verse {
+  text-shadow: 1px -1px 5px rgb(68, 68, 242);
+}
+body.dark #entry_name{
+  color: white;
+}
+/*  */
+.buttons {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 75vh;
+}
+
+.join {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+}
+
+.create-btn {
+  width: 100%;
+  cursor: pointer;
+}
+
+.round-btn {
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 16px;
+  font-family: monospace;
+  font-variant-caps: normal;
+  transition: transform 0.5s;
+}
+.round-btn:hover{
+  transform: scale(1.06);
+}
+
+
+.message-box {
+  border-color: black;
+  border-width: 2px;
+  border-style: solid;
+  border-radius: 10px;
+  background-color: slateblue;
+  height: 80vh;
+  display: flex;
+  flex-direction: column;
+  width: 80vw;
+  align-items: stretch;
+  transition: transform 0.5s;
+}
+body.dark .message-box{
+  background-color: #c1bae9;
+}
+.message-box:hover{
+  transform: scale(1.005);
+}
+
+.messages {
+  overflow-y: scroll;
+  flex: 1;
+  width: auto;
+  padding: 15px;
+  background-color:#eeeeee;
+  text-align: left;
+}
+.message-details{
+  color: rgb(0, 0, 0);
+}
+
+.inputs {
+  padding: 10px;
+  display: flex;
+}
+
+h2 {
+  text-align: center;
+}
+
+#message {
+  flex: 1;
+}
+
+.text {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 10px;
+  padding-right: 10px;
+  margin-bottom: 10px;
+}
+
+.muted {
+  font-size: 10px;
+  color: slateblue;
+  display: flex;
+  flex-direction: row-reverse;
+}
+body.dark .muted{
+  color: #77b8d9;;
+}
+
+/*  */
+
+@import url("https://fonts.googleapis.com/css2?family=Montserrat&display=swap");
+
+* {box-sizing: border-box;}
+
+body {
+  font-family: "Montserrat", sans-serif;
+  background-color: #fff;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  text-align: center;
+  margin: 0;
+  transition: background 0.2s linear;
+}
+
+body.dark h1, body.dark .support a {color: #fff;}
+
+/* CSS for toggle switch */
+.toggle-container {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+}
+
+.checkbox {
+  display: none;
+}
+
+.checkbox-label {
+  display: inline-block;
+  width: 40px;
+  height: 20px;
+  background-color: #ccc;
+  border-radius: 10px;
+  position: relative;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.fa-moon {color: #f1c40f;}
+
+.fa-sun {color: #f39c12;}
+
+.checkbox-label i {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #fff;
+  transition: opacity 0.3s;
+}
+
+.checkbox-label .fa-moon {
+  left: 5px;
+  opacity: 1;
+}
+
+.checkbox-label .fa-sun {
+  right: 5px;
+  opacity: 0;
+}
+
+.checkbox-label .ball {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: #fff;
+  transition: transform 0.3s;
+}
+
+.checkbox:checked + .checkbox-label {
+  /* background-color: #2f3640; */
+  background-color: #747474;
+}
+
+.checkbox:checked + .checkbox-label .fa-moon {
+  opacity: 0;
+}
+
+.checkbox:checked + .checkbox-label .fa-sun {
+  opacity: 1;
+}
+
+.checkbox:checked + .checkbox-label .ball {
+  transform: translateX(20px);
+}
+
+body.dark {background-color: #292c35;} 
+/* #9b59b6 */
+
+body.dark .checkbox-label {
+  background-color: #fff;
+}
+
+body.dark .checkbox-label .ball {
+  background-color: #2f3640;
+}
+body.dark .messages {
+  background-color: #1c1b1bf0;
+  color: #fff;
+}
+
+/*  */
+.footer {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  text-align: center;
+  padding: 10px 0;
+}
+

@@ -1,0 +1,83 @@
+{% extends 'base.html' %} {% block content %}
+<style>
+  .buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .join {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .join input[type="text"] {
+    margin-bottom: 10px;
+  }
+
+  .round-btn {
+    margin-bottom: 10px;
+  }
+
+  .form-field {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .form-field label {
+    margin-bottom: 5px;
+    text-align: right;
+    width: 100px;
+  }
+
+  .form-field input[type="text"] {
+    text-align: left;
+    width: 150px;
+  }
+</style>
+
+<div class="toggle-container">
+  <input type="checkbox" class="checkbox" id="checkbox" />
+  <label for="checkbox" class="checkbox-label">
+    <i class="fas fa-moon"></i>
+    <i class="fas fa-sun"></i>
+    <span class="ball"></span>
+  </label>
+</div>
+
+<form method="post" class="buttons">
+  <h3><span class="verse">ChatVerse</span></h3>
+  <div class="form-field">
+    <label>Enter Name:</label>
+    <input type="text" placeholder="Pick a name!" name="name" value="{{name}}" />
+  </div>
+  <div class="form-field">
+    <label>Room Code:</label>
+    <input type="text" placeholder="Unique Code" name="code" value="{{code}}" />
+  </div>
+  <div>
+    <button type="submit" name="join" class="round-btn">Join a Room</button>
+    <button type="submit" name="create" class="round-btn">Create a Room</button>
+  </div>
+  {% if error %}
+  <ul>
+    <li>{{error}}</li>
+  </ul>
+  {% endif %}
+</form>
+
+<footer class="footer">
+  <p style="font-family: 'Lilita One', cursive">&copy; ChatVerse 2023</p>
+</footer>
+
+<script>
+  const checkbox = document.getElementById("checkbox");
+  checkbox.addEventListener("change", () => {
+    document.body.classList.toggle("dark");
+  });
+</script>
+{% endblock %}
