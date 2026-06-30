@@ -108,6 +108,7 @@ export default function ChatVerseApp({ onClose }: ChatVerseAppProps) {
     const socket = new WebSocket(wsUrl);
     socketRef.current = socket;
     let hasOpened = false;
+    let isRotating = false;
 
     socket.onopen = () => {
       hasOpened = true;
@@ -145,6 +146,16 @@ export default function ChatVerseApp({ onClose }: ChatVerseAppProps) {
     socket.onmessage = (event) => {
       try {
         const packet = JSON.parse(event.data);
+        
+        // Handle server authentication error packets (e.g. rate limit or bad API key)
+        if (packet.error) {
+          console.warn(`PieSocket API error: ${packet.error}. Trying next config...`);
+          isRotating = true;
+          socket.close();
+          connectToWebSocket(username, code, configIndex + 1);
+          return;
+        }
+
         const time = packet.time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
         if (packet.sender === username) return; // Ignore messages from self if bounced back
@@ -220,18 +231,19 @@ export default function ChatVerseApp({ onClose }: ChatVerseAppProps) {
     };
 
     socket.onerror = () => {
-      if (!hasOpened) {
+      if (!hasOpened && !isRotating) {
         console.warn(`Connection failed with config index ${configIndex}. Trying next config...`);
+        isRotating = true;
         socket.close();
         connectToWebSocket(username, code, configIndex + 1);
-      } else {
+      } else if (!isRotating) {
         setError("Failed to connect to the live socket server. Please try again.");
         handleLeaveRoom();
       }
     };
 
     socket.onclose = () => {
-      if (hasOpened) {
+      if (hasOpened && !isRotating) {
         setScreen("lobby");
       }
     };
