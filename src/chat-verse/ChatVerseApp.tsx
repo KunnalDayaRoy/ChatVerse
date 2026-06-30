@@ -18,9 +18,13 @@ interface Member {
 interface ChatVerseAppProps {
   onClose?: () => void;
 }
-
-const PIESOCKET_API_KEY = "oCdGGZPqld7ihjZMDaURwZNSgIMa75j15ccjuISa"; // Public demo key
-
+const WEBSOCKET_CONFIGS = [
+  { host: "demo.piesocket.com", apiKey: "oCdGGZPqld7ihjZMDaURwZNSgIMa75j15ccjuISa" },
+  { host: "demo.piesocket.com", apiKey: "oCdCMcMPQpbvNjUIzqtvF1d2X2okWpDQj4AwARJuAgtjhzKxVEjQU6IdCjwm" },
+  { host: "demo.piesocket.com", apiKey: "VCXCEuvhGcBDP7XhiJJUDvR1e1D3eiVjgZ9VRiaV" },
+  { host: "free3.piesocket.com", apiKey: "VCXCEuvhGcBDP7XhiJJUDvR1e1D3eiVjgZ9VRiaV" },
+  { host: "free3.piesocket.com", apiKey: "oCdCMcMPQpbvNjUIzqtvF1d2X2okWpDQj4AwARJuAgtjhzKxVEjQU6IdCjwm" }
+];
 export default function ChatVerseApp({ onClose }: ChatVerseAppProps) {
   const [screen, setScreen] = useState<"lobby" | "chatroom">("lobby");
   const [name, setName] = useState("");
@@ -90,14 +94,23 @@ export default function ChatVerseApp({ onClose }: ChatVerseAppProps) {
     connectToWebSocket(name, finalCode);
   };
 
-  // Connect to the live PieSocket WebSocket relay channel
-  const connectToWebSocket = (username: string, code: string) => {
-    const wsUrl = `wss://demo.piesocket.com/v3/${code}?api_key=${PIESOCKET_API_KEY}&notify_self=0`;
+  // Connect to the live PieSocket WebSocket relay channel with fallback options
+  const connectToWebSocket = (username: string, code: string, configIndex = 0) => {
+    if (configIndex >= WEBSOCKET_CONFIGS.length) {
+      setError("Failed to connect to the live socket server. Please try again.");
+      handleLeaveRoom();
+      return;
+    }
+
+    const config = WEBSOCKET_CONFIGS[configIndex];
+    const wsUrl = `wss://${config.host}/v3/${code}?api_key=${config.apiKey}&notify_self=0`;
     
     const socket = new WebSocket(wsUrl);
     socketRef.current = socket;
+    let hasOpened = false;
 
     socket.onopen = () => {
+      hasOpened = true;
       setScreen("chatroom");
       const dateStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       
@@ -207,13 +220,20 @@ export default function ChatVerseApp({ onClose }: ChatVerseAppProps) {
     };
 
     socket.onerror = () => {
-      setError("Failed to connect to the live socket server. Please try again.");
-      handleLeaveRoom();
+      if (!hasOpened) {
+        console.warn(`Connection failed with config index ${configIndex}. Trying next config...`);
+        socket.close();
+        connectToWebSocket(username, code, configIndex + 1);
+      } else {
+        setError("Failed to connect to the live socket server. Please try again.");
+        handleLeaveRoom();
+      }
     };
 
     socket.onclose = () => {
-      // Revert screen if closed unexpectedly
-      setScreen("lobby");
+      if (hasOpened) {
+        setScreen("lobby");
+      }
     };
   };
 
