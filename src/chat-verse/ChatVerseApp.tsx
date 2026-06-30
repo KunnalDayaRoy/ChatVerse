@@ -19,6 +19,7 @@ interface ChatVerseAppProps {
   onClose?: () => void;
 }
 const WEBSOCKET_CONFIGS = [
+  { host: "demo.piesocket.com", apiKey: "3hMVK8wsPgzHX9FxQ6VkJgw1g3mIt1UFhuwwhTJ7" },
   { host: "demo.piesocket.com", apiKey: "oCdGGZPqld7ihjZMDaURwZNSgIMa75j15ccjuISa" },
   { host: "demo.piesocket.com", apiKey: "oCdCMcMPQpbvNjUIzqtvF1d2X2okWpDQj4AwARJuAgtjhzKxVEjQU6IdCjwm" },
   { host: "demo.piesocket.com", apiKey: "VCXCEuvhGcBDP7XhiJJUDvR1e1D3eiVjgZ9VRiaV" },
